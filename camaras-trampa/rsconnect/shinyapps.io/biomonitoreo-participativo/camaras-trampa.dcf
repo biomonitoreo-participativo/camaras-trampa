@@ -1,0 +1,13 @@
+name: camaras-trampa
+title: camaras-trampa
+username:
+account: biomonitoreo-participativo
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 5172254
+bundleId: 5275049
+url: https://biomonitoreo-participativo.shinyapps.io/camaras-trampa/
+when: 1637453174.00771
+lastSyncTime: 1637453174.00774
+asMultiple: FALSE
+asStatic: FALSE
