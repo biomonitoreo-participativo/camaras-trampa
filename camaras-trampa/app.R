@@ -1,8 +1,8 @@
 # Paquetes
 library(dplyr)
 library(lubridate)
+library(stringr)
 library(ggplot2)
-library(hrbrthemes)
 library(shiny)
 library(shinydashboard)
 
@@ -21,6 +21,37 @@ indicadores <-
     )
 
 
+# Función para asignación de grupo de especies
+grupo = function(especie) {
+    ifelse(
+        especie %in% c(
+            "Leopardus pardalis",
+            "Leopardus tigrinus",
+            "Leopardus wiedii",
+            "Panthera onca",
+            "Puma concolor",
+            "Puma yagouaroundi"
+        ),
+        "Felinos",
+        ifelse(
+            especie %in% c("Cuniculus paca", "Dasyprocta punctata"),
+            "Guatusas y tepezcuintles",
+            ifelse(
+                especie %in% c(
+                    "Mazama temama",
+                    "Odocoileus virginianus",
+                    "Pecari tajacu",
+                    "Tapirus bairdii",
+                    "Tayassu pecari"
+                ),
+                "Ungulados",
+                "Otros"
+            )
+        )
+    )
+}
+
+
 # Curación de datos
 # Especies detectadas
 deteccion <-
@@ -28,8 +59,14 @@ deteccion <-
     subset(species %in% indicadores$scientificName) %>%
     mutate(dateTimeCaptured = as_datetime(dateTimeCaptured, format = "%Y:%m:%d %H:%M:%OS")) %>%
     mutate(monthCaptured = month(dateTimeCaptured)) %>%
-    mutate(hourCaptured = hour(dateTimeCaptured))
+    mutate(hourCaptured = hour(dateTimeCaptured)) %>%
+    mutate(group = grupo(species))
 
+
+# Lista ordenada de grupos + "Todos"
+lista_grupos <- unique(deteccion$group)
+lista_grupos <- sort(lista_grupos)
+lista_grupos <- c("Todos", lista_grupos)
 
 # Lista ordenada de especies + "Todas"
 lista_especies <- unique(deteccion$species)
@@ -45,6 +82,12 @@ ui <-
             menuItem(
                 text = "Filtros",
                 selectInput(
+                    inputId = "grupo",
+                    label = "Grupo",
+                    choices = lista_grupos,
+                    selected = "Todos"
+                ),                
+                selectInput(
                     inputId = "especie",
                     label = "Especie",
                     choices = lista_especies,
@@ -54,18 +97,49 @@ ui <-
             )
         )),
         dashboardBody(box(
-            title = "Distribución de fotografías en las horas del día",
-            plotOutput(outputId = "deteccion"),
+            title = "Distribución en las horas del día de las fotografías tomadas",
+            plotOutput(outputId = "distribucion_horas_fotografias"),
             width = 12
         ),)
     )
 
 # Definición de la función server
-server <- function(input, output) {
+server <- function(input, output, session) {
     filtrarDatos <- reactive({
         deteccion_filtrado <-
             deteccion
-        
+
+        # Filtrado por grupo
+        if (input$grupo != "Todos") {
+            deteccion_filtrado <-
+                deteccion_filtrado %>%
+                filter(group == input$grupo)
+            
+            if (input$especie == "Todas") {
+                # Lista ordenada de especies del grupo + "Todas"
+                deteccion_grupo <- filter(deteccion, group == input$grupo)
+                lista_especies_grupo <- unique(deteccion_grupo$species)
+                lista_especies_grupo <- sort(lista_especies_grupo)
+                lista_especies_grupo <- c("Todas", lista_especies_grupo)
+                
+                updateSelectInput(
+                    session,
+                    "especie",
+                    label = "Especie",
+                    choices = lista_especies_grupo,
+                    selected = "Todas"
+                )
+            }            
+        } else {
+            updateSelectInput(
+                session,
+                "especie",
+                label = "Especie",
+                choices = lista_especies,
+                selected = "Todas"
+            )            
+        }       
+                
         # Filtrado por especie
         if (input$especie != "Todas") {
             deteccion_filtrado <-
@@ -76,7 +150,7 @@ server <- function(input, output) {
         return(deteccion_filtrado)
     })
     
-    output$deteccion <- renderPlot({
+    output$distribucion_horas_fotografias <- renderPlot({
         deteccion_filtrado <-
             filtrarDatos()
         
@@ -93,7 +167,7 @@ server <- function(input, output) {
             ) +
             ggtitle(if_else(input$species == "Todas", "Todas las especies", input$species)) +
             xlab("Hora") +
-            ylab("Fotografías")
+            ylab("Cantidad de fotografías")
     })
 }
 
