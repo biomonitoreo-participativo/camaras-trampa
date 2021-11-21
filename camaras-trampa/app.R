@@ -8,17 +8,24 @@ library(shinydashboard)
 
 
 # Lectura de datos
-# detection
+# Especies detectadas
 deteccion <-
     read.csv(
         "https://raw.githubusercontent.com/biomonitoreo-participativo/biomonitoreo-participativo-datos/master/crtms/detection.csv"
     )
 
+# Indicadores
+indicadores <-
+    read.csv(
+        "https://raw.githubusercontent.com/biomonitoreo-participativo/biomonitoreo-participativo-datos/master/indicator.csv"
+    )
+
 
 # Curación de datos
-# detection
+# Especies detectadas
 deteccion <-
     deteccion %>%
+    subset(species %in% indicadores$scientificName) %>%
     mutate(dateTimeCaptured = as_datetime(dateTimeCaptured, format = "%Y:%m:%d %H:%M:%OS")) %>%
     mutate(monthCaptured = month(dateTimeCaptured)) %>%
     mutate(hourCaptured = hour(dateTimeCaptured))
@@ -46,13 +53,11 @@ ui <-
                 startExpanded = TRUE
             )
         )),
-        dashboardBody(fluidRow(
-            box(
-                title = "Horas de detección",
-                plotOutput(outputId = "histograma"),
-                width = 12
-            ),
-        ))
+        dashboardBody(box(
+            title = "Distribución de fotografías en las horas del día",
+            plotOutput(outputId = "deteccion"),
+            width = 12
+        ),)
     )
 
 # Definición de la función server
@@ -71,7 +76,7 @@ server <- function(input, output) {
         return(deteccion_filtrado)
     })
     
-    output$histograma <- renderPlot({
+    output$deteccion <- renderPlot({
         deteccion_filtrado <-
             filtrarDatos()
         
@@ -86,10 +91,9 @@ server <- function(input, output) {
                 fill = "gray",
                 alpha = 0.4
             ) +
-            ggtitle(input$especie) +
+            ggtitle(if_else(input$species == "Todas", "Todas las especies", input$species)) +
             xlab("Hora") +
-            ylab("Frecuencia") +
-            theme_ipsum()
+            ylab("Fotografías")
     })
 }
 
