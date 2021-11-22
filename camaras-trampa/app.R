@@ -86,21 +86,68 @@ ui <-
                     label = "Grupo",
                     choices = lista_grupos,
                     selected = "Todos"
-                ),                
+                ),
                 selectInput(
                     inputId = "especie",
                     label = "Especie",
                     choices = lista_especies,
                     selected = "Todas"
                 ),
-                startExpanded = TRUE
+                startExpanded = TRUE,
+                menuSubItem(text = "Resumen", tabName = "tab_resumen"),
+                menuSubItem(text = "Gráficos por especie", tabName = "tab_distribucion_horas_fotografias_detalle")
             )
         )),
-        dashboardBody(box(
-            title = "Distribución en las horas del día de las fotografías tomadas",
-            plotOutput(outputId = "distribucion_horas_fotografias"),
-            width = 12
-        ),)
+        dashboardBody(tags$head(
+            tags$script(
+                        '
+              // Este código JS permite utilizar todo el largo de un box de shinydashboard.
+              // Fue publicado en: 
+              // https://stackoverflow.com/questions/56965843/height-of-the-box-in-r-shiny
+              
+              // Define function to set height of "map" and "map_container"
+              setHeight = function() {
+                var window_height = $(window).height();
+                var header_height = $(".main-header").height();
+        
+                var boxHeight = window_height - header_height - 30;
+        
+                $("#box_distribucion_horas_fotografias_detalle").height(boxHeight - 20);
+                // $("#distribucion_horas_fotografias_detalle").height(boxHeight - 20);
+                $("#distribucion_horas_fotografias_detalle").height(boxHeight - 40);
+              };
+        
+              // Set input$box_height when the connection is established
+              $(document).on("shiny:connected", function(event) {
+                setHeight();
+              });
+        
+              // Refresh the box height on every window resize event
+              $(window).on("resize", function(){
+                setHeight();
+              });
+            '
+            )
+        ),
+        tabItems(
+            tabItem(tabName = "tab_resumen",
+                    fluidRow(
+                        box(
+                            title = "Distribución en las horas del día de las fotografías tomadas",
+                            plotOutput(outputId = "distribucion_horas_fotografias_resumen"),
+                            width = 12
+                        )
+                    )),
+            tabItem(tabName = "tab_distribucion_horas_fotografias_detalle",
+                    fluidRow(
+                        box(
+                            id = "box_distribucion_horas_fotografias_detalle",
+                            title = "Distribución en las horas del día de las fotografías tomadas",
+                            plotOutput(outputId = "distribucion_horas_fotografias_detalle"),
+                            width = 12
+                        )
+                    ))
+        ))
     )
 
 # Definición de la función server
@@ -108,7 +155,7 @@ server <- function(input, output, session) {
     filtrarDatos <- reactive({
         deteccion_filtrado <-
             deteccion
-
+        
         # Filtrado por grupo
         if (input$grupo != "Todos") {
             deteccion_filtrado <-
@@ -117,10 +164,13 @@ server <- function(input, output, session) {
             
             if (input$especie == "Todas") {
                 # Lista ordenada de especies del grupo + "Todas"
-                deteccion_grupo <- filter(deteccion, group == input$grupo)
-                lista_especies_grupo <- unique(deteccion_grupo$species)
+                deteccion_grupo <-
+                    filter(deteccion, group == input$grupo)
+                lista_especies_grupo <-
+                    unique(deteccion_grupo$species)
                 lista_especies_grupo <- sort(lista_especies_grupo)
-                lista_especies_grupo <- c("Todas", lista_especies_grupo)
+                lista_especies_grupo <-
+                    c("Todas", lista_especies_grupo)
                 
                 updateSelectInput(
                     session,
@@ -129,7 +179,7 @@ server <- function(input, output, session) {
                     choices = lista_especies_grupo,
                     selected = "Todas"
                 )
-            }            
+            }
         } else {
             updateSelectInput(
                 session,
@@ -137,9 +187,9 @@ server <- function(input, output, session) {
                 label = "Especie",
                 choices = lista_especies,
                 selected = "Todas"
-            )            
-        }       
-                
+            )
+        }
+        
         # Filtrado por especie
         if (input$especie != "Todas") {
             deteccion_filtrado <-
@@ -150,7 +200,7 @@ server <- function(input, output, session) {
         return(deteccion_filtrado)
     })
     
-    output$distribucion_horas_fotografias <- renderPlot({
+    output$distribucion_horas_fotografias_resumen <- renderPlot({
         deteccion_filtrado <-
             filtrarDatos()
         
@@ -165,10 +215,40 @@ server <- function(input, output, session) {
                 fill = "gray",
                 alpha = 0.4
             ) +
-            ggtitle(if_else(input$species == "Todas", "Todas las especies", input$species)) +
+            ggtitle(if_else(
+                input$species == "Todas",
+                "Todas las especies",
+                input$species
+            )) +
             xlab("Hora") +
             ylab("Cantidad de fotografías")
     })
+    
+    output$distribucion_horas_fotografias_detalle <- renderPlot({
+        deteccion_filtrado <-
+            filtrarDatos()
+        
+        deteccion_filtrado %>%
+            ggplot(aes(x = hourCaptured)) +
+            geom_histogram(binwidth = 1,
+                           color = "black",
+                           fill = "white") +
+            geom_density(
+                aes(y = ..count..),
+                color = "gray",
+                fill = "gray",
+                alpha = 0.4
+            ) +
+            ggtitle(if_else(
+                input$species == "Todas",
+                "Todas las especies",
+                input$species
+            )) +
+            xlab("Hora") +
+            ylab("Cantidad de fotografías") +
+            facet_wrap( ~ species, ncol = 2)
+    })
+    
 }
 
 # Ejecución de la aplicación
