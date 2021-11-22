@@ -115,8 +115,10 @@ ui <-
                 var boxHeight = window_height - header_height - 30;
 
                 $("#box_distribucion_horas_fotografias_detalle").height(boxHeight - 20);
+                $("#box_distribucion_meses_fotografias_detalle").height(boxHeight - 20);
                 // $("#distribucion_horas_fotografias_detalle").height(boxHeight - 20);
                 $("#distribucion_horas_fotografias_detalle").height(boxHeight - 40);
+                $("#distribucion_meses_fotografias_detalle").height(boxHeight - 40);
               };
 
               // Set input$box_height when the connection is established
