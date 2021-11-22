@@ -95,59 +95,77 @@ ui <-
                 ),
                 startExpanded = TRUE,
                 menuSubItem(text = "Resumen", tabName = "tab_resumen"),
-                menuSubItem(text = "Gráficos por especie", tabName = "tab_distribucion_horas_fotografias_detalle")
+                menuSubItem(text = "Horas por especie", tabName = "tab_distribucion_horas_fotografias_detalle"),
+                menuSubItem(text = "Meses por especie", tabName = "tab_distribucion_meses_fotografias_detalle")
             )
         )),
-        dashboardBody(tags$head(
-            tags$script(
-                        '
-              // Este código JS permite utilizar todo el largo de un box de shinydashboard.
-              // Fue publicado en: 
+        dashboardBody(
+            tags$head(
+                tags$script(
+                    '
+              // Este código JS permite ampliar el largo de un box de shinydashboard.
+              // Fue publicado en:
               // https://stackoverflow.com/questions/56965843/height-of-the-box-in-r-shiny
-              
+
               // Define function to set height of "map" and "map_container"
               setHeight = function() {
                 var window_height = $(window).height();
                 var header_height = $(".main-header").height();
-        
+
                 var boxHeight = window_height - header_height - 30;
-        
+
                 $("#box_distribucion_horas_fotografias_detalle").height(boxHeight - 20);
                 // $("#distribucion_horas_fotografias_detalle").height(boxHeight - 20);
                 $("#distribucion_horas_fotografias_detalle").height(boxHeight - 40);
               };
-        
+
               // Set input$box_height when the connection is established
               $(document).on("shiny:connected", function(event) {
                 setHeight();
               });
-        
+
               // Refresh the box height on every window resize event
               $(window).on("resize", function(){
                 setHeight();
               });
             '
+                )
+            ),
+            tabItems(
+                tabItem(tabName = "tab_resumen",
+                        fluidRow(
+                            box(
+                                title = "Distribución en las horas del día de las fotografías tomadas",
+                                plotOutput(outputId = "distribucion_horas_fotografias_resumen", height = 250),
+                                width = 12
+                            )
+                        ), fluidRow(
+                            box(
+                                title = "Distribución en los meses del año de las fotografías tomadas",
+                                plotOutput(outputId = "distribucion_meses_fotografias_resumen", height = 250),
+                                width = 12
+                            )
+                        )),
+                tabItem(tabName = "tab_distribucion_horas_fotografias_detalle",
+                        fluidRow(
+                            box(
+                                id = "box_distribucion_horas_fotografias_detalle",
+                                title = "Distribución en las horas del día de las fotografías tomadas",
+                                plotOutput(outputId = "distribucion_horas_fotografias_detalle"),
+                                width = 12
+                            )
+                        )),
+                tabItem(tabName = "tab_distribucion_meses_fotografias_detalle",
+                        fluidRow(
+                            box(
+                                id = "box_distribucion_meses_fotografias_detalle",
+                                title = "Distribución en los meses del año de las fotografías tomadas",
+                                plotOutput(outputId = "distribucion_meses_fotografias_detalle"),
+                                width = 12
+                            )
+                        ))
             )
-        ),
-        tabItems(
-            tabItem(tabName = "tab_resumen",
-                    fluidRow(
-                        box(
-                            title = "Distribución en las horas del día de las fotografías tomadas",
-                            plotOutput(outputId = "distribucion_horas_fotografias_resumen"),
-                            width = 12
-                        )
-                    )),
-            tabItem(tabName = "tab_distribucion_horas_fotografias_detalle",
-                    fluidRow(
-                        box(
-                            id = "box_distribucion_horas_fotografias_detalle",
-                            title = "Distribución en las horas del día de las fotografías tomadas",
-                            plotOutput(outputId = "distribucion_horas_fotografias_detalle"),
-                            width = 12
-                        )
-                    ))
-        ))
+        )
     )
 
 # Definición de la función server
@@ -224,6 +242,22 @@ server <- function(input, output, session) {
             ylab("Cantidad de fotografías")
     })
     
+    output$distribucion_meses_fotografias_resumen <- renderPlot({
+        deteccion_filtrado <-
+            filtrarDatos()
+        
+        deteccion_filtrado %>%
+            ggplot(aes(format(dateTimeCaptured, "%m"))) +
+            geom_bar(stat = "count") +
+            ggtitle(if_else(
+                input$species == "Todas",
+                "Todas las especies",
+                input$species
+            )) +
+            xlab("Mes") +
+            ylab("Cantidad de fotografías")
+    })
+    
     output$distribucion_horas_fotografias_detalle <- renderPlot({
         deteccion_filtrado <-
             filtrarDatos()
@@ -246,8 +280,26 @@ server <- function(input, output, session) {
             )) +
             xlab("Hora") +
             ylab("Cantidad de fotografías") +
-            facet_wrap( ~ species, ncol = 2)
+            facet_wrap(~ species, ncol = 2)
     })
+    
+    output$distribucion_meses_fotografias_detalle <- renderPlot({
+        deteccion_filtrado <-
+            filtrarDatos()
+        
+        deteccion_filtrado %>%
+            ggplot(aes(format(dateTimeCaptured, "%m"))) +
+            geom_bar(stat = "count") +
+            ggtitle(if_else(
+                input$species == "Todas",
+                "Todas las especies",
+                input$species
+            )) +
+            xlab("Mes") +
+            ylab("Cantidad de fotografías") +
+            facet_wrap(~ species, ncol = 2)
+    })
+    
     
 }
 
