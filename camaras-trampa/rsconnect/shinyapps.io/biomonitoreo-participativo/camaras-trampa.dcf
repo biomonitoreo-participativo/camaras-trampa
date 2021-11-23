@@ -5,9 +5,9 @@ account: biomonitoreo-participativo
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 5172254
-bundleId: 5283203
+bundleId: 5283275
 url: https://biomonitoreo-participativo.shinyapps.io/camaras-trampa/
-when: 1637643692.44781
-lastSyncTime: 1637643692.44785
+when: 1637646887.09088
+lastSyncTime: 1637646887.09091
 asMultiple: FALSE
 asStatic: FALSE

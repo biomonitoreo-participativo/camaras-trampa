@@ -4,6 +4,7 @@ library(tidyr)
 library(lubridate)
 library(stringr)
 library(ggplot2)
+library(ggthemes)
 library(sf)
 library(leaflet)
 library(leaflet.extras)
@@ -297,10 +298,14 @@ server <- function(input, output, session) {
         
         detecciones_filtrado %>%
             ggplot(aes(x = hourCaptured)) +
-            geom_histogram(binwidth = 1) +
+            geom_histogram(binwidth = 1,
+                           color = "black",
+                           fill = "white") +
             geom_density(
                 aes(y = ..count..),
-                alpha = 0.4
+                color = "black",
+                fill = "gray",
+                alpha = 0.4                
             ) +
             ggtitle(if_else(
                 input$species == "Todas",
@@ -308,7 +313,8 @@ server <- function(input, output, session) {
                 input$species
             )) +
             xlab("Hora") +
-            ylab("Registros de cámaras")
+            ylab("Registros de cámaras") +
+            theme_economist()
     })
     
     
@@ -318,14 +324,14 @@ server <- function(input, output, session) {
         
         detecciones_filtrado %>%
             ggplot(aes(format(dateTimeCaptured, "%m"))) +
-            geom_bar(stat = "count") +
-            ggtitle(if_else(
-                input$species == "Todas",
-                "Todas las especies",
-                input$species
-            )) +
+            geom_bar(stat = "count", color = "black",
+                     fill = "white") +
+            ggtitle(if_else(input$species == "Todas",
+                            "Todas las especies",
+                            input$species)) +
             xlab("Mes") +
-            ylab("Registros de cámaras")
+            ylab("Registros de cámaras") +
+            theme_economist()
     })
     
     
@@ -335,10 +341,14 @@ server <- function(input, output, session) {
         
         detecciones_filtrado %>%
             ggplot(aes(x = hourCaptured)) +
-            geom_histogram(binwidth = 1) +
+            geom_histogram(binwidth = 1,
+                           color = "black",
+                           fill = "white") +
             geom_density(
                 aes(y = ..count..),
-                alpha = 0.4
+                color = "black",
+                fill = "gray",
+                alpha = 0.4                    
             ) +
             ggtitle(if_else(
                 input$species == "Todas",
@@ -347,7 +357,8 @@ server <- function(input, output, session) {
             )) +
             xlab("Hora") +
             ylab("Registros de cámaras") +
-            facet_wrap( ~ species, ncol = 2)
+            facet_wrap( ~ species, ncol = 2) +
+            theme_economist()
     })
     
     
@@ -357,7 +368,8 @@ server <- function(input, output, session) {
         
         detecciones_filtrado %>%
             ggplot(aes(format(dateTimeCaptured, "%m"))) +
-            geom_bar(stat = "count") +
+            geom_bar(stat = "count", color = "black",
+                     fill = "white") +
             ggtitle(if_else(
                 input$species == "Todas",
                 "Todas las especies",
@@ -365,7 +377,8 @@ server <- function(input, output, session) {
             )) +
             xlab("Mes") +
             ylab("Registros de cámaras") +
-            facet_wrap( ~ species, ncol = 2)
+            facet_wrap( ~ species, ncol = 2) +
+            theme_economist()
     })
     
     
