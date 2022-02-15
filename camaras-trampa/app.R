@@ -77,6 +77,7 @@ grupo = function(especie) {
 # Curación de datos
 detecciones <-
     detecciones %>%
+    mutate(species = str_replace(species, "_", " ")) %>%
     subset(species %in% indicadores$scientificName) %>%
     mutate(dateTimeCaptured = as_datetime(dateTimeCaptured, format = "%Y:%m:%d %H:%M:%OS")) %>%
     mutate(hourCaptured = hour(dateTimeCaptured)) %>%
@@ -84,6 +85,7 @@ detecciones <-
 
 registros_camaras <-
     registros_camaras %>%
+    mutate(species = str_replace(species, "_", " ")) %>%
     subset(species %in% indicadores$scientificName) %>%
     mutate(dateTimeCaptured = as_datetime(dateTimeCaptured, format = "%Y:%m:%d %H:%M:%OS")) %>%
     mutate(hourCaptured = hour(dateTimeCaptured)) %>%
