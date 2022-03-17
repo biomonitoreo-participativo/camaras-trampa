@@ -3,6 +3,7 @@ library(dplyr)
 library(tidyr)
 library(lubridate)
 library(stringr)
+library(DT)
 library(ggplot2)
 library(ggthemes)
 library(sf)
@@ -12,35 +13,6 @@ library(leafem)
 library(shiny)
 library(shinydashboard)
 
-
-# Lectura de datos
-# Detecciones de especies en las cámaras
-detecciones <-
-    read.csv(
-        "https://raw.githubusercontent.com/biomonitoreo-participativo/biomonitoreo-participativo-datos/master/crtms/detection.csv"
-    )
-
-# Estaciones en dónde están ubicadas las cámaras
-estaciones <-
-    read.csv(
-        "https://raw.githubusercontent.com/biomonitoreo-participativo/biomonitoreo-participativo-datos/master/crtms/station.csv"
-    )
-
-# Registros de cámaras trampa (detecciones + estaciones)
-# Se usan dos conjuntos de datos (detecciones y registros_camaras)
-# debido a que hay detecciones sin coordenadas.
-# registros_camaras tiene solo las detecciones con coordenadas.
-registros_camaras <- inner_join(detecciones, estaciones)
-registros_camaras <-
-    registros_camaras %>% drop_na(longitude, latitude)
-registros_camaras <-
-    registros_camaras %>% st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
-
-# Especies indicadoras
-indicadores <-
-    read.csv(
-        "https://raw.githubusercontent.com/biomonitoreo-participativo/biomonitoreo-participativo-datos/master/indicator.csv"
-    )
 
 
 # Función para asignación de grupo a una especie
@@ -74,33 +46,218 @@ grupo = function(especie) {
 }
 
 
-# Curación de datos
+
+# Valores globales
+MINUTOS_AGRUPACION = 30.0
+
+
+
+# Lectura de datos en archivos
+# Detecciones de especies en las cámaras
+detecciones <-
+    read.csv(
+        "https://raw.githubusercontent.com/biomonitoreo-participativo/biomonitoreo-participativo-datos/master/crtms/detection.csv"
+    )
+
+# Instalaciones de cámaras
+instalaciones <-
+    read.csv(
+        "https://raw.githubusercontent.com/biomonitoreo-participativo/biomonitoreo-participativo-datos/master/crtms/deployment.csv"
+    )
+
+# Estaciones en dónde están ubicadas las cámaras
+estaciones <-
+    read.csv(
+        "https://raw.githubusercontent.com/biomonitoreo-participativo/biomonitoreo-participativo-datos/master/crtms/station.csv"
+    )
+
+# Especies indicadoras
+indicadores <-
+    read.csv(
+        "https://raw.githubusercontent.com/biomonitoreo-participativo/biomonitoreo-participativo-datos/master/indicator.csv"
+    )
+
+
+# Correcciones preliminares (deberían corregirse en los archivos de datos)
 detecciones <-
     detecciones %>%
-    mutate(species = str_replace(species, "_", " ")) %>%
-    subset(species %in% indicadores$scientificName) %>%
+    rename(deploymentID = SampligCode) %>%
+    rename(numberOfShots = Numberofshots) %>%
+    mutate(
+        deploymentID = replace(
+            deploymentID,
+            deploymentLocationID == "La Chiripa",
+            "ACLAP_JER_CHR_01"
+        )
+    )
+
+instalaciones <-
+    instalaciones %>%
+    filter(
+        !(
+            deploymentID == 'ACLAP_ANG_CAV_02' &
+                cameraDeploymentBeginDate == '2020-12-11' |
+                deploymentID == 'ACLAP_CBC_EVE_01' &
+                cameraDeploymentBeginDate == '2021-02-02'
+        )
+    )
+
+estaciones <-
+    estaciones %>%
+    rename(organization = Organization) %>%
+    filter(!(
+        deploymentLocationID == 'Sendero Catarata' &
+            organization == 'Tres Colinas'
+    ))
+
+
+# Otras modificaciones
+detecciones <-
+    detecciones %>%
     mutate(dateTimeCaptured = as_datetime(dateTimeCaptured, format = "%Y:%m:%d %H:%M:%OS")) %>%
+    select(-numberOfShots)
+
+
+# Filtro de detecciones por especies indicadoras
+detecciones <-
+    detecciones %>%
+    subset(species %in% indicadores$scientificName)
+
+
+# Agrupación de detecciones con la misma especie y ubicación y un máximo de MINUTOS_AGRUPACION de diferencia de tiempo
+# Ordenamiento de detecciones
+detecciones <-
+    detecciones %>%
+    arrange(projectID,
+            deploymentID,
+            deploymentLocationID,
+            species,
+            dateTimeCaptured)
+
+# Dataframe para detecciones agrupadas
+detecciones_agrupadas <-
+    data.frame(
+        projectID = character(),
+        deploymentID = character(),
+        deploymentLocationID = character(),
+        species = character(),
+        dateTimeCaptured = character()
+    )
+
+projectID_1 <- as.data.frame(detecciones)[1, "projectID"]
+deploymentID_1 <- as.data.frame(detecciones)[1, "deploymentID"]
+deploymentLocationID_1 <- as.data.frame(detecciones)[1, "deploymentLocationID"]
+species_1 <- as.data.frame(detecciones)[1, "species"]
+dateTimeCaptured_1 <- as.data.frame(detecciones)[1, "dateTimeCaptured"]
+
+detecciones_agrupadas[1,] <-
+    c(
+        projectID_1,
+        deploymentID_1,
+        deploymentLocationID_1,
+        species_1,
+        format(dateTimeCaptured_1, "%Y-%m-%d %H:%M:%OS")
+    )
+
+for (row in 2:nrow(detecciones)) {
+    projectID_2 <- as.data.frame(detecciones)[row, "projectID"]
+    deploymentID_2 <- as.data.frame(detecciones)[row, "deploymentID"]
+    deploymentLocationID_2 <- as.data.frame(detecciones)[row, "deploymentLocationID"]
+    species_2 <- as.data.frame(detecciones)[row, "species"]
+    dateTimeCaptured_2 <- as.data.frame(detecciones)[row, "dateTimeCaptured"]
+    
+    if (projectID_2 != projectID_1 |
+        deploymentID_2 != deploymentID_1 |
+        deploymentLocationID_2 != deploymentLocationID_1 |
+        species_2 != species_1 |
+        abs(
+            difftime(dateTimeCaptured_2, dateTimeCaptured_1, units = 'mins') > MINUTOS_AGRUPACION
+        )) {
+        detecciones_agrupadas[nrow(detecciones_agrupadas) + 1,] <-
+            c(
+                projectID_2,
+                deploymentID_2,
+                deploymentLocationID_2,
+                species_2,
+                format(dateTimeCaptured_2, "%Y-%m-%d %H:%M:%OS")
+            )
+        
+        projectID_1 <- projectID_2
+        deploymentID_1 <- deploymentID_2
+        deploymentLocationID_1 <- deploymentLocationID_2
+        species_1 <- species_2
+        dateTimeCaptured_1 <- dateTimeCaptured_2
+    }
+}
+
+# Transformaciones y columnas adicionales
+detecciones_agrupadas <-
+    detecciones_agrupadas %>%
+    mutate(dateTimeCaptured = as_datetime(dateTimeCaptured, format = "%Y-%m-%d %H:%M:%OS")) %>%
     mutate(hourCaptured = hour(dateTimeCaptured)) %>%
     mutate(group = grupo(species))
 
+
+# Join de detecciones, instalaciones y estaciones
+registros_camaras_temp <-
+    left_join(detecciones_agrupadas,
+              instalaciones,
+              by = c("deploymentID" = "deploymentID")) %>%
+    rename(deploymentLocationID = deploymentLocationID.x) %>%
+    select(-deploymentLocationID.y,-cameraFailureDetails,-treatment)
+
+
+# Objeto sf final con registros de cámaras trampa
 registros_camaras <-
+    left_join(
+        registros_camaras_temp,
+        estaciones,
+        by = c("deploymentLocationID" = "deploymentLocationID")
+    ) %>%
+    rename(projectID = projectID.x) %>%
+    select(-projectID.y) %>%
+    mutate(cameraDeploymentBeginDate = as_datetime(cameraDeploymentBeginDate, format = "%Y-%m-%d")) %>%
+    mutate(cameraDeploymentEndDate = as_datetime(cameraDeploymentEndDate, format = "%Y-%m-%d")) %>%
+    mutate(days = as.numeric(cameraDeploymentEndDate - cameraDeploymentBeginDate, units="days")) %>%
+    st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+
+
+# Cálculo del IAR
+iar_x_instalacion <-
     registros_camaras %>%
-    mutate(species = str_replace(species, "_", " ")) %>%
-    subset(species %in% indicadores$scientificName) %>%
-    mutate(dateTimeCaptured = as_datetime(dateTimeCaptured, format = "%Y:%m:%d %H:%M:%OS")) %>%
-    mutate(hourCaptured = hour(dateTimeCaptured)) %>%
-    mutate(group = grupo(species))
+    st_drop_geometry() %>%
+    group_by(projectID, organization, deploymentLocationID, deploymentID, days, group, species) %>%
+    summarize(n = n()) %>%
+    mutate(iar_instalacion = n/days*100)
+
+iar_x_especie <-
+    iar_x_instalacion %>%
+    group_by(species) %>%
+    summarize(iar_especie=mean(iar_instalacion))
 
 
+
+# Listas de selección
 # Lista ordenada de grupos + "Todos"
-lista_grupos <- unique(detecciones$group)
+lista_grupos <- unique(registros_camaras$group)
 lista_grupos <- sort(lista_grupos)
 lista_grupos <- c("Todos", lista_grupos)
 
 # Lista ordenada de especies + "Todas"
-lista_especies <- unique(detecciones$species)
+lista_especies <- unique(registros_camaras$species)
 lista_especies <- sort(lista_especies)
 lista_especies <- c("Todas", lista_especies)
+
+# Lista ordenada de localidades + "Todas"
+lista_localidades <- unique(registros_camaras$deploymentLocationID)
+lista_localidades <- sort(lista_localidades)
+lista_localidades <- c("Todas", lista_localidades)
+
+# Lista ordenada de organizaciones + "Todas"
+lista_organizaciones <- unique(registros_camaras$organization)
+lista_organizaciones <- sort(lista_organizaciones)
+lista_organizaciones <- c("Todas", lista_organizaciones)
+
 
 
 # Definición del objeto ui
@@ -122,10 +279,24 @@ ui <-
                     choices = lista_especies,
                     selected = "Todas"
                 ),
+                selectInput(
+                    inputId = "organizacion",
+                    label = "Brigada",
+                    choices = lista_organizaciones,
+                    selected = "Todas"
+                ),                     
+                selectInput(
+                    inputId = "localidad",
+                    label = "Localidad",
+                    choices = lista_localidades,
+                    selected = "Todas"
+                ),                        
                 startExpanded = TRUE,
                 menuSubItem(text = "Resumen", tabName = "tab_resumen"),
                 menuSubItem(text = "Distribución en horas por spp.", tabName = "tab_distribucion_registros_horas_especies"),
-                menuSubItem(text = "Distribución en meses por spp.", tabName = "tab_distribucion_registros_meses_especies")
+                menuSubItem(text = "Distribución en meses por spp.", tabName = "tab_distribucion_registros_meses_especies"),
+                menuSubItem(text = "Registros de cámaras trampa", tabName = "tab_tabla_registros_camaras"),
+                menuSubItem(text = "Índice de abundancia relativa", tabName = "tab_indice_abundancia_relativa")
             )
         )),
         dashboardBody(
@@ -177,14 +348,14 @@ ui <-
                                 width = 6,
                                 box(
                                     title = "Distribución de los registros en las horas del día",
-                                    plotOutput(outputId = "distribucion_registros_horas_resumen", height = 250),
+                                    plotOutput(outputId = "distribucion_registros_horas_resumen", height = 200),
                                     width = NULL
                                 ),
                                 box(
                                     title = "Distribución de los registros en los meses del año",
-                                    plotOutput(outputId = "distribucion_registros_meses_resumen", height = 250),
+                                    plotOutput(outputId = "distribucion_registros_meses_resumen", height = 200),
                                     width = NULL
-                                )
+                                )                                
                             ),
                             
                         )),
@@ -205,54 +376,31 @@ ui <-
                                 plotOutput(outputId = "distribucion_registros_meses_especies"),
                                 width = 12
                             )
-                        ))
+                        )),
+                tabItem(tabName = "tab_tabla_registros_camaras",
+                        fluidRow(
+                            box(
+                                id = "box_tabla_registros_camaras",
+                                title = "Registros de cámaras trampa",
+                                DTOutput(outputId = "tabla_registros_camaras"),
+                                width = 12
+                            )
+                        )),
+                tabItem(tabName = "tab_indice_abundancia_relativa",
+                        fluidRow(
+                            box(
+                                id = "box_indice_abundancia_relativa",
+                                title = "Índice de abundancia relativa",
+                                plotOutput(outputId = "indice_abundancia_relativa"),
+                                width = 12
+                            )
+                        ))                                
             )
         )
     )
 
 # Definición de la función server
 server <- function(input, output, session) {
-    filtrarDetecciones <- reactive({
-        detecciones_filtrado <-
-            detecciones
-        
-        # Filtrado por grupo
-        if (input$grupo != "Todos") {
-            detecciones_filtrado <-
-                detecciones_filtrado %>%
-                filter(group == input$grupo)
-            
-            if (input$especie == "Todas") {
-                # Lista ordenada de especies del grupo + "Todas"
-                detecciones_grupo <-
-                    filter(detecciones, group == input$grupo)
-                lista_especies_grupo <-
-                    unique(detecciones_grupo$species)
-                lista_especies_grupo <- sort(lista_especies_grupo)
-                lista_especies_grupo <-
-                    c("Todas", lista_especies_grupo)
-                
-                updateSelectInput(
-                    session,
-                    "especie",
-                    label = "Especie",
-                    choices = lista_especies_grupo,
-                    selected = "Todas"
-                )
-            }
-        }
-        
-        # Filtrado por especie
-        if (input$especie != "Todas") {
-            detecciones_filtrado <-
-                detecciones_filtrado %>%
-                filter(species == input$especie)
-        }
-        
-        return(detecciones_filtrado)
-    })
-    
-    
     filtrarRegistrosCamaras <- reactive({
         registros_camaras_filtrado <-
             registros_camaras
@@ -265,10 +413,10 @@ server <- function(input, output, session) {
             
             if (input$especie == "Todas") {
                 # Lista ordenada de especies del grupo + "Todas"
-                detecciones_grupo <-
-                    filter(detecciones, group == input$grupo)
+                registros_camaras_grupo <-
+                    filter(registros_camaras_filtrado, group == input$grupo)
                 lista_especies_grupo <-
-                    unique(detecciones_grupo$species)
+                    unique(registros_camaras_grupo$species)
                 lista_especies_grupo <- sort(lista_especies_grupo)
                 lista_especies_grupo <-
                     c("Todas", lista_especies_grupo)
@@ -289,16 +437,88 @@ server <- function(input, output, session) {
                 registros_camaras_filtrado %>%
                 filter(species == input$especie)
         }
+
+        # Filtrado por organización
+        if (input$organizacion != "Todas") {
+            registros_camaras_filtrado <-
+                registros_camaras_filtrado %>%
+                filter(organization == input$organizacion)
+        }        
+        
+        # Filtrado por localidad
+        if (input$localidad != "Todas") {
+            registros_camaras_filtrado <-
+                registros_camaras_filtrado %>%
+                filter(deploymentLocationID == input$localidad)
+        }            
         
         return(registros_camaras_filtrado)
     })
     
+    filtrarIAR <- reactive({
+        iar_x_instalacion_filtrado <-
+            iar_x_instalacion
+        
+        # Filtrado por grupo
+        if (input$grupo != "Todos") {
+            iar_x_instalacion_filtrado <-
+                iar_x_instalacion_filtrado %>%
+                filter(group == input$grupo)
+            
+            if (input$especie == "Todas") {
+                # Lista ordenada de especies del grupo + "Todas"
+                iar_x_instalacion_grupo <-
+                    filter(iar_x_instalacion_filtrado, group == input$grupo)
+                lista_especies_grupo <-
+                    unique(iar_x_instalacion_grupo$species)
+                lista_especies_grupo <- sort(lista_especies_grupo)
+                lista_especies_grupo <-
+                    c("Todas", lista_especies_grupo)
+                
+                updateSelectInput(
+                    session,
+                    "especie",
+                    label = "Especie",
+                    choices = lista_especies_grupo,
+                    selected = "Todas"
+                )
+            }
+        }
+        
+        # Filtrado por especie
+        if (input$especie != "Todas") {
+            iar_x_instalacion_filtrado <-
+                iar_x_instalacion_filtrado %>%
+                filter(species == input$especie)
+        }
+        
+        # Filtrado por organización
+        if (input$organizacion != "Todas") {
+            iar_x_instalacion_filtrado <-
+                iar_x_instalacion_filtrado %>%
+                filter(organization == input$organizacion)
+        }        
+        
+        # Filtrado por localidad
+        if (input$localidad != "Todas") {
+            iar_x_instalacion_filtrado <-
+                iar_x_instalacion_filtrado %>%
+                filter(deploymentLocationID == input$localidad)
+        }            
+        
+        iar_x_especie_filtrado <-
+            iar_x_instalacion_filtrado %>%
+            group_by(species) %>%
+            summarize(iar_especie=mean(iar_instalacion))        
+        
+        return(iar_x_especie_filtrado)
+    })    
     
     output$distribucion_registros_horas_resumen <- renderPlot({
-        detecciones_filtrado <-
-            filtrarDetecciones()
+        registros_camaras_filtrado <-
+            filtrarRegistrosCamaras()
         
-        detecciones_filtrado %>%
+        registros_camaras_filtrado %>%
             ggplot(aes(x = hourCaptured)) +
             geom_histogram(binwidth = 1,
                            color = "black",
@@ -321,10 +541,10 @@ server <- function(input, output, session) {
     
     
     output$distribucion_registros_meses_resumen <- renderPlot({
-        detecciones_filtrado <-
-            filtrarDetecciones()
+        registros_camaras_filtrado <-
+            filtrarRegistrosCamaras()
         
-        detecciones_filtrado %>%
+        registros_camaras_filtrado %>%
             ggplot(aes(format(dateTimeCaptured, "%m"))) +
             geom_bar(stat = "count", color = "black",
                      fill = "white") +
@@ -336,12 +556,29 @@ server <- function(input, output, session) {
             theme_economist()
     })
     
+    output$indice_abundancia_relativa_resumen <- renderPlot({
+        registros_camaras_filtrado <-
+            filtrarRegistrosCamaras()
+        
+        registros_camaras_filtrado %>%
+            ggplot(aes(species)) +
+            geom_bar(stat = "count", color = "black",
+                     fill = "white") +
+            ggtitle(if_else(input$species == "Todas",
+                            "Todas las especies",
+                            input$species)) +
+            xlab("Mes") +
+            ylab("Registros de cámaras") +
+            coord_flip() +
+            theme_economist()
+    })    
+    
     
     output$distribucion_registros_horas_especies <- renderPlot({
-        detecciones_filtrado <-
-            filtrarDetecciones()
+        registros_camaras_filtrado <-
+            filtrarRegistrosCamaras()
         
-        detecciones_filtrado %>%
+        registros_camaras_filtrado %>%
             ggplot(aes(x = hourCaptured)) +
             geom_histogram(binwidth = 1,
                            color = "black",
@@ -365,10 +602,10 @@ server <- function(input, output, session) {
     
     
     output$distribucion_registros_meses_especies <- renderPlot({
-        detecciones_filtrado <-
-            filtrarDetecciones()
+        registros_camaras_filtrado <-
+            filtrarRegistrosCamaras()
         
-        detecciones_filtrado %>%
+        registros_camaras_filtrado %>%
             ggplot(aes(format(dateTimeCaptured, "%m"))) +
             geom_bar(stat = "count", color = "black",
                      fill = "white") +
@@ -415,14 +652,17 @@ server <- function(input, output, session) {
                     "<strong>Especie: </strong>",
                     registros_camaras_filtrado$species,
                     "<br>",
-                    "<strong>Ubicación: </strong>",
+                    "<strong>Brigada: </strong>",
+                    registros_camaras_filtrado$organization,     
+                    "<br>",                            
+                    "<strong>Localidad: </strong>",
                     registros_camaras_filtrado$deploymentLocationID,
                     "<br>",        
-                    "<strong>Fecha y hora: </strong>",
-                    registros_camaras_filtrado$dateTimeCaptured,
+                    "<strong>Instalación: </strong>",
+                    registros_camaras_filtrado$deploymentID,
                     "<br>",        
-                    "<strong>Organización: </strong>",
-                    registros_camaras_filtrado$Organization
+                    "<strong>Fecha y hora: </strong>",
+                    registros_camaras_filtrado$dateTimeCaptured
                 )                
             ) %>%
             addLayersControl(
@@ -442,6 +682,64 @@ server <- function(input, output, session) {
             addSearchOSM() %>%
             addResetMapButton()            
     })
+    
+    output$tabla_registros_camaras <- renderDT({
+        registros_camaras_filtrado <-
+            filtrarRegistrosCamaras()
+        
+        registros_camaras_filtrado %>%
+            st_drop_geometry() %>%
+            select(
+                group,
+                species,
+                organization,                                
+                deploymentLocationID,                
+                deploymentID,
+                dateTimeCaptured,                
+                cameraDeploymentBeginDate,
+                cameraDeploymentEndDate
+            ) %>%
+            datatable(
+                rownames = FALSE,
+                colnames = c("Grupo", "Especie", "Brigada", "Localidad", "Instalación", "Fecha y hora", "Fecha inicial", "Fecha final"),
+                extensions = c("Buttons"),
+                options = list(
+                    pageLength = 10,
+                    searchHighlight = TRUE,
+                    lengthMenu = list(
+                        c(10, 20, 30, 40, 50, -1),
+                        c(10, 20, 30, 40, 50, "Todos")
+                    ),
+                    dom = 'Bfrtlip',
+                    language = list(url = "//cdn.datatables.net/plug-ins/1.10.11/i18n/Spanish.json"),
+                    buttons = list(
+                        list(extend = 'copy', text = 'Copiar'),
+                        list(extend = 'csv', text = 'CSV'),
+                        list(extend = 'csv', text = 'Excel'),
+                        list(extend = 'pdf', text = 'PDF')
+                    )
+                )
+            )        
+        
+    })
+    
+    output$indice_abundancia_relativa <- renderPlot({
+        iar_x_especie_filtrado <-
+            filtrarIAR()
+        
+        iar_x_especie_filtrado %>%
+            ggplot(aes(x = reorder(species, iar_especie), y=iar_especie)) +
+            geom_bar(stat = "identity", color = "black",
+                     fill = "white") +
+            geom_text(aes(label = round(iar_especie, digits=2)), vjust = 0.2) + 
+            ggtitle(if_else(input$species == "Todas",
+                            "Todas las especies",
+                            input$species)) +
+            xlab("Especie") +
+            ylab("Índice de abundancia relativa") +
+            coord_flip() +
+            theme_economist()
+    })            
     
 }
 
