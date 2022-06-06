@@ -39,7 +39,42 @@ grupo = function(especie) {
                     "Tayassu pecari"
                 ),
                 "Ungulados",
-                "Otros"
+                ifelse(
+                    especie %in% c(
+                        "Alouatta palliata",
+                        "Ateles geoffroyi",
+                        "Cebus imitator",
+                        "Saimiri oerstedii"
+                    ),
+                    "Primates",
+                    ifelse(
+                        especie %in% c(
+                            "Pharomachrus mocinno",
+                            "Trogon rufus",
+                            "Trogon bairdii",
+                            "Trogon caligatus",
+                            "Trogon massena",
+                            "Trogon collaris",
+                            "Procnias tricarunculatus",
+                            "Myadestes melanops",
+                            "Tinamus major",
+                            "Nothocercus bonapartei",
+                            "Crypturellus soui",
+                            "Crax rubra",
+                            "Penelope purpurascens",
+                            "Ortalis cinereiceps",                            
+                            "Chamaepetes unicolor"
+                        ),
+                        "Aves",
+                        ifelse(
+                            especie %in% c(
+                                "Atelopus varius"
+                            ),
+                            "Herpetofauna",
+                            "Otros"
+                        )
+                    )
+                )
             )
         )
     )
@@ -219,21 +254,57 @@ registros_camaras <-
     mutate(cameraDeploymentBeginDate = as_datetime(cameraDeploymentBeginDate, format = "%Y-%m-%d")) %>%
     mutate(cameraDeploymentEndDate = as_datetime(cameraDeploymentEndDate, format = "%Y-%m-%d")) %>%
     mutate(days = as.numeric(cameraDeploymentEndDate - cameraDeploymentBeginDate, units="days")) %>%
+    mutate(year = year(cameraDeploymentEndDate)) %>% ## 2022-06-05
     st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
 
 
 # Cálculo del IAR
+
+# IAR por instalación
 iar_x_instalacion <-
     registros_camaras %>%
     st_drop_geometry() %>%
-    group_by(projectID, organization, deploymentLocationID, deploymentID, days, group, species) %>%
+    group_by(projectID, organization, deploymentLocationID, deploymentID, days, group, species, year) %>% # 2022-06-05 , year
     summarize(n = n()) %>%
     mutate(iar_instalacion = n/days*100)
 
+# Esto duplica la lista de especies que hay más adelante
+especies <- unique(registros_camaras$species)
+especies <- as.data.frame(especies)
+especies <- rename(especies, species=especies)
+
+# instalaciones-especies
+instalaciones_especies <-
+    full_join(
+        select(
+            instalaciones,
+            deploymentID,
+            cameraDeploymentBeginDate,
+            cameraDeploymentEndDate
+        ),
+        especies,
+        by = character()
+    ) %>%
+    mutate(cameraDeploymentBeginDate = as_datetime(cameraDeploymentBeginDate, format = "%Y-%m-%d")) %>%
+    mutate(cameraDeploymentEndDate = as_datetime(cameraDeploymentEndDate, format = "%Y-%m-%d")) %>%
+    mutate(days = as.numeric(cameraDeploymentEndDate - cameraDeploymentBeginDate, units="days"))
+
+# Join para incluir las especies no detectadas en una estación
+iar_x_instalacion_2 <-
+    right_join(iar_x_instalacion, instalaciones_especies, by=c('deploymentID', 'species'))
+
+iar_x_instalacion_2 <-
+    rename(iar_x_instalacion_2, days = days.y) %>%
+    select(-days.x)
+
+iar_x_instalacion_2 <- iar_x_instalacion_2 %>% mutate(n = ifelse(is.na(n), 0, n))
+iar_x_instalacion_2 <- iar_x_instalacion_2 %>% mutate(iar_instalacion = ifelse(is.na(iar_instalacion), 0, iar_instalacion))
+
+# IAR por especie
 iar_x_especie <-
-    iar_x_instalacion %>%
+    iar_x_instalacion_2 %>%
     group_by(species) %>%
-    summarize(iar_especie=mean(iar_instalacion))
+    summarize(iar_especie=mean(iar_instalacion), sd=sd(iar_instalacion))
 
 
 
@@ -508,8 +579,8 @@ server <- function(input, output, session) {
         
         iar_x_especie_filtrado <-
             iar_x_instalacion_filtrado %>%
-            group_by(species) %>%
-            summarize(iar_especie=mean(iar_instalacion))        
+            group_by(species, year) %>% # 2022-06-05 , year
+            summarize(iar_especie=mean(iar_instalacion))
         
         return(iar_x_especie_filtrado)
     })    
@@ -728,16 +799,17 @@ server <- function(input, output, session) {
             filtrarIAR()
         
         iar_x_especie_filtrado %>%
-            ggplot(aes(x = reorder(species, iar_especie), y=iar_especie)) +
-            geom_bar(stat = "identity", color = "black",
-                     fill = "white") +
-            geom_text(aes(label = round(iar_especie, digits=2)), vjust = 0.2) + 
+            filter(year == 2020 | year == 2021) %>%
+            ggplot(aes(x = factor(year),
+                       y = iar_especie)) +
+            geom_bar(stat = "identity", position = "dodge") +
+            geom_text(aes(label = round(iar_especie, digits = 2)), vjust = 1.5, colour = "white") +
             ggtitle(if_else(input$species == "Todas",
                             "Todas las especies",
                             input$species)) +
-            xlab("Especie") +
+            xlab("Año") +
             ylab("Índice de abundancia relativa") +
-            coord_flip() +
+            facet_wrap( ~ species) +
             theme_economist()
     })            
     
